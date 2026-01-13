@@ -53,9 +53,9 @@ import {
   ShieldCheck,
   Mail,
   RefreshCw,
-  Lock,
-  ArrowRight,
-  UserCheck
+  FileText,
+  File as FileIcon,
+  Upload
 } from 'lucide-react';
 
 // --- CONSTANTS & CONFIG ---
@@ -78,14 +78,17 @@ const BLANK_RECIPE = {
   instructions: [""]
 };
 
-// --- FIREBASE INITIALIZATION (DUAL-MODE) ---
+// --- FIREBASE INITIALIZATION ---
+
+import.meta.env.VITE_FIREBASE_API_KEY
+
 const PORTABLE_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAkdKmuMwku-nTtK4V_xGO_Wj0sjXkLw5M",
-  authDomain: "recipe-book-planner.firebaseapp.com",
-  projectId: "recipe-book-planner",
-  storageBucket: "recipe-book-planner.firebasestorage.app",
-  messagingSenderId: "641855928176",
-  appId: "1:641855928176:web:23412a8fc09082b79b41b5"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
@@ -102,18 +105,25 @@ const googleProvider = new GoogleAuthProvider();
 // --- UTILS ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const callGemini = async (prompt, base64ImageData) => {
-  const apiKey = ""; 
+const callGemini = async (prompt, fileData = null) => {
+  // DEFENSIVE KEY LOGIC: Use hardcoded key as primary to fix the 403 empty key error
+  const apiKey = "AIzaSyCGf8GW13cjkmmM87rImMfFWjuWDwaBwto";
+
   let retries = 0;
   const maxRetries = 5;
 
+  const parts = [{ text: prompt }];
+  if (fileData) {
+    parts.push({ 
+      inlineData: { 
+        mimeType: fileData.mimeType, 
+        data: fileData.base64 
+      } 
+    });
+  }
+
   const payload = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inlineData: { mimeType: "image/png", data: base64ImageData } }
-      ]
-    }],
+    contents: [{ parts }],
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -523,19 +533,38 @@ export default function App() {
     });
   }, [recipes, selectedTagFilters, searchQuery]);
 
-  const processImage = async (file) => {
+  const processImport = async (file) => {
     if (!file) return;
     setProcessing(true);
-    showToast("Reading recipe photo...", "info");
+    showToast("Processing recipe file...", "info");
 
     try {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      const isText = file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md');
+      
+      if (isText) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsDataURL(file);
+      }
+
       reader.onload = async () => {
-        const base64Data = reader.result.split(',')[1];
-        const prompt = `Read the recipe from this photo. Extract title, description, timings, servings, and instructions. Return JSON. Available tags: ${tags.map(t => t.name).join(", ")}.`;
+        let prompt = "";
+        let fileDataPayload = null;
+
+        if (isText) {
+          prompt = `A user has uploaded a recipe text file. Please parse the following text into a structured recipe JSON. Categorize using these tags: ${tags.map(t => t.name).join(", ")}.
+          TEXT CONTENT:
+          ${reader.result}`;
+        } else {
+          prompt = `Analyze this ${file.type.includes('pdf') ? 'PDF document' : 'photo'} and extract the recipe data. Extract title, description, timings, servings, ingredients, and instructions. Categorize using these available tags: ${tags.map(t => t.name).join(", ")}.`;
+          fileDataPayload = {
+            mimeType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/png'),
+            base64: reader.result.split(',')[1]
+          };
+        }
         
-        const extracted = await callGemini(prompt, base64Data);
+        const extracted = await callGemini(prompt, fileDataPayload);
         if (extracted) {
           const tagIds = (extracted.tagNames || [])
             .map(tn => tags.find(t => t.name.toLowerCase() === tn.toLowerCase())?.id)
@@ -551,6 +580,7 @@ export default function App() {
         }
       };
     } catch (error) { 
+      console.error(error);
       showToast("Import failed", "error"); 
     } finally { 
       setProcessing(false); 
@@ -603,7 +633,6 @@ export default function App() {
     );
   }
 
-  // Guard: Not Auth or Not Verified
   if (!user || !isVerified) {
     return (
       <AuthScreen 
@@ -626,7 +655,7 @@ export default function App() {
               <ChefHat size={24} />
             </div>
             <div>
-              <h1 className="font-bold text-xl tracking-tight leading-none">Recipe Book</h1>
+              <h1 className="font-bold text-xl tracking-tight leading-none">Jess & Tommy’s Recipe Book</h1>
               <p className="text-[10px] uppercase font-black tracking-widest text-neutral-400 mt-1">{user?.email?.split('@')[0] || 'Chef'}</p>
             </div>
           </div>
@@ -636,7 +665,7 @@ export default function App() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={16} />
               <input 
                 type="text"
-                placeholder="Search..."
+                placeholder="Search recipes..."
                 className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -646,7 +675,7 @@ export default function App() {
               type="button"
               onClick={() => { setEditData({...BLANK_RECIPE}); setModalMode('edit'); setIsModalOpen(true); }}
               className="p-2.5 bg-neutral-800 dark:bg-white text-white dark:text-neutral-900 rounded-xl hover:scale-105 active:scale-95 transition-all shadow-sm"
-              title="New Recipe"
+              title="New Manual Entry"
             >
               <Plus size={20} />
             </button>
@@ -654,7 +683,7 @@ export default function App() {
               type="button"
               onClick={() => { setModalMode('tags'); setIsModalOpen(true); }}
               className="p-2.5 bg-neutral-200 dark:bg-neutral-800 rounded-xl hover:bg-neutral-300 transition-colors"
-              title="Tags"
+              title="Manage Categories"
             >
               <Settings size={20} />
             </button>
@@ -714,11 +743,17 @@ export default function App() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={processing}
-            className="flex items-center justify-center gap-3 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:border-orange-500 transition-all disabled:opacity-50 shadow-sm"
+            className="flex items-center justify-center gap-3 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 border border-neutral-900 dark:border-neutral-800 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 shadow-xl"
           >
-            {processing ? <Loader2 className="animate-spin" size={16} /> : <ImageIcon size={16} />}
-            Scan Recipe Photo
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => processImage(e.target.files[0])} />
+            {processing ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
+            Import New Recipe
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept="image/*,application/pdf,text/plain" 
+              onChange={(e) => processImport(e.target.files[0])} 
+            />
           </button>
         </div>
 
@@ -727,7 +762,7 @@ export default function App() {
             {filteredRecipes.length === 0 ? (
               <div className="text-center py-32 text-neutral-400">
                 <BookOpen size={48} className="mx-auto mb-4 opacity-20" />
-                <p>No recipes found. Start by scanning a photo!</p>
+                <p>No recipes found. Start by importing a file or photo!</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -818,7 +853,7 @@ export default function App() {
                             <div className="mt-8 space-y-6">
                               <h4 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-400 flex items-center gap-3"><Utensils size={16} className="text-orange-600" /> Need for this dish</h4>
                               <div className="space-y-3">
-                                {recipe.ingredients?.map((ing, i) => {
+                                {(recipe.ingredients || []).map((ing, i) => {
                                   const isChecked = mealPlanChecked?.ingredients?.[recipe.id]?.includes(i);
                                   return (
                                     <label key={i} className={`flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer ${isChecked ? 'bg-neutral-50 dark:bg-neutral-800/20 opacity-30' : 'bg-white dark:bg-neutral-800 border-neutral-100 dark:border-neutral-700 shadow-sm hover:scale-[1.01]'}`}>
@@ -839,7 +874,7 @@ export default function App() {
                             <div className="mt-8 space-y-6">
                               <h4 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-400 flex items-center gap-3"><ChefHat size={16} className="text-orange-600" /> Preparation</h4>
                               <div className="space-y-6">
-                                {recipe.instructions?.map((step, i) => {
+                                {(recipe.instructions || []).map((step, i) => {
                                   const isChecked = mealPlanChecked?.instructions?.[recipe.id]?.includes(i);
                                   return (
                                     <div key={i} className="flex gap-5 group cursor-pointer" onClick={() => updateMealCheck('instructions', recipe.id, i)}>
@@ -940,7 +975,7 @@ export default function App() {
                     <div key={i} className="grid grid-cols-12 gap-3 items-center bg-neutral-50 dark:bg-neutral-800/50 p-2 rounded-2xl transition-all border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700">
                       <div className="col-span-2"><input type="text" className="w-full bg-white dark:bg-neutral-900 rounded-xl p-3 text-xs text-center font-black outline-none focus:ring-2 focus:ring-orange-500 shadow-sm" value={typeof ing === 'string' ? '' : (ing?.amount || '')} onChange={(e) => { const newIng = [...editData.ingredients]; if (typeof newIng[i] === 'string') newIng[i] = { amount: e.target.value, unit: 'UNIT', name: newIng[i] }; else newIng[i].amount = e.target.value; setEditData({...editData, ingredients: newIng}); }} /></div>
                       <div className="col-span-3"><select className="w-full bg-white dark:bg-neutral-900 rounded-xl p-3 text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-orange-500 shadow-sm appearance-none text-center" value={typeof ing === 'string' ? 'UNIT' : (ing?.unit || 'UNIT').toUpperCase()} onChange={(e) => { const newIng = [...editData.ingredients]; if (typeof newIng[i] === 'string') newIng[i] = { amount: '', unit: e.target.value, name: newIng[i] }; else newIng[i].unit = e.target.value; setEditData({...editData, ingredients: newIng}); }}> {COOKING_UNITS.map(u => <option key={u} value={u}>{u}</option>)} </select></div>
-                      <div className="col-span-6"><input type="text" className="w-full bg-white dark:bg-neutral-900 rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-500 shadow-sm" value={typeof ing === 'string' ? ing : (ing?.name || '')} onChange={(e) => { const newIng = [...editData.ingredients]; if (typeof newIng[i] === 'string') newIng[i] = e.target.value; else newIng[i].name = e.target.value; setEditData({...editData, ingredients: newIng}); }} /></div>
+                      <div className="col-span-6"><input type="text" className="w-full bg-white dark:bg-neutral-900 rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-500 shadow-sm" value={typeof ing === 'string' ? ing : (ing?.name || '')} onChange={(e) => { const newIng = [...editData.ingredients]; if (typeof newIng[i] === 'string') newIng[i] = { amount: '', unit: e.target.value, name: newIng[i] }; else newIng[i].name = e.target.value; setEditData({...editData, ingredients: newIng}); }} /></div>
                       <div className="col-span-1 text-right"><button type="button" onClick={() => setEditData({...editData, ingredients: editData.ingredients.filter((_, idx) => idx !== i)})} className="p-2 text-neutral-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button></div>
                     </div>
                   ))}</div>
