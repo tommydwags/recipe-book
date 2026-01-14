@@ -107,7 +107,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const callGemini = async (prompt, fileData = null) => {
   // DEFENSIVE KEY LOGIC: Use hardcoded key as primary to fix the 403 empty key error
-  const apiKey = "";
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
   let retries = 0;
   const maxRetries = 5;
@@ -154,7 +154,7 @@ const callGemini = async (prompt, fileData = null) => {
 
   while (retries <= maxRetries) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -379,6 +379,79 @@ export default function App() {
   const [newTagName, setNewTagName] = useState("");
 
   const fileInputRef = useRef(null);
+
+  // --- APP METADATA & ICON SETUP ---
+  useEffect(() => {
+    // 1. Core Titles and Basic Meta
+    const appTitle = "Jess & Tommy’s Recipe Book";
+    document.title = appTitle;
+
+    const setMetaTag = (attr, value, content) => {
+      let tag = document.querySelector(`meta[${attr}='${value}']`);
+      if (!tag) {
+        tag = document.createElement('meta');
+        tag.setAttribute(attr, value);
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute('content', content);
+    };
+
+    setMetaTag('name', 'apple-mobile-web-app-capable', 'yes');
+    setMetaTag('name', 'apple-mobile-web-app-status-bar-style', 'black-translucent');
+    setMetaTag('name', 'apple-mobile-web-app-title', "Our Kitchen");
+
+    // Clear existing icons to force browser update
+    document.querySelectorAll("link[rel*='icon'], link[rel='apple-touch-icon']").forEach(el => el.remove());
+
+    // SVG Chef Hat Path (from Lucide)
+    const chefHatPaths = `M6 13.8V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v9.8 M6 10H4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2h-2 M6 18h12`;
+
+    // FOR FAVICON: Chrome/Desktop handles SVGs fine
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/svg+xml';
+    const tabSvg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#ea580c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='${chefHatPaths}'/></svg>`;
+    link.href = `data:image/svg+xml,${encodeURIComponent(tabSvg)}`;
+    document.head.appendChild(link);
+
+    // FOR IPHONE: Safari requires a PNG for reliable Home Screen icons.
+    // We generate a PNG using Canvas on the fly.
+    const size = 180; // Standard apple-touch-icon size
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // 1. Draw rounded orange background
+    ctx.fillStyle = '#ea580c';
+    const radius = 40;
+    ctx.beginPath();
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(size - radius, 0);
+    ctx.quadraticCurveTo(size, 0, size, radius);
+    ctx.lineTo(size, size - radius);
+    ctx.quadraticCurveTo(size, size, size - radius, size);
+    ctx.lineTo(radius, size);
+    ctx.quadraticCurveTo(0, size, 0, size - radius);
+    ctx.lineTo(0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // 2. Draw Chef Hat (White)
+    const p = new Path2D(chefHatPaths);
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setTransform(6, 0, 0, 6, 18, 18); // Scale and center
+    ctx.stroke(p);
+
+    const appleLink = document.createElement('link');
+    appleLink.rel = 'apple-touch-icon';
+    appleLink.href = canvas.toDataURL('image/png');
+    document.head.appendChild(appleLink);
+  }, []);
 
   // Verification helper
   const isVerified = useMemo(() => {
