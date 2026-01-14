@@ -107,7 +107,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const callGemini = async (prompt, fileData = null) => {
   // DEFENSIVE KEY LOGIC: Use hardcoded key as primary to fix the 403 empty key error
-  const apiKey = "AIzaSyCGf8GW13cjkmmM87rImMfFWjuWDwaBwto";
+  const apiKey = "";
 
   let retries = 0;
   const maxRetries = 5;
